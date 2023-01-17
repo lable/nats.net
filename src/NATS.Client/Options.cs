@@ -699,13 +699,21 @@ namespace NATS.Client
         
         private void appendEventHandler(StringBuilder sb, String name, Delegate eh)
         {
+#if NET40
+            if (eh != null)
+                sb.AppendFormat("{0}={1};", name, eh.Method.Name);
+            else
+                sb.AppendFormat("{0}=null;", name);
+#else
             if (eh != null)
                 sb.AppendFormat("{0}={1};", name, eh.GetMethodInfo().Name);
             else
                 sb.AppendFormat("{0}=null;", name);
+#endif
+
         }
 
-        
+
         /// <summary>
         /// Constant used to sets the reconnect buffer size to unbounded.
         /// </summary>

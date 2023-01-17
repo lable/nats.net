@@ -12,6 +12,7 @@
 // limitations under the License.
 
 using System;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -19,15 +20,64 @@ namespace NATS.Client.Internals
 {
     public class Digester
     {
+#if NET40
+        readonly SHA256 sha256 = SHA256Managed.Create();
+        MemoryStream ms = default;
+#else
         private IncrementalHash hasher;
+        
+#endif
         private string digest;
         private string entry;
+#if NET40
+public void AppendData(string s)
+        {
+            if (digest != null)
+            {
+                throw new InvalidOperationException("Digest has already been prepared.");
+            }
 
+            if (ms is null)
+            {
+                ms = new MemoryStream(1024);
+            }
+
+            var buf = Encoding.UTF8.GetBytes(s);
+            ms.Write(buf, 0, buf.Length);
+        }
+
+        public void AppendData(byte[] data)
+        {
+            if (digest != null)
+            {
+                throw new InvalidOperationException("Digest has already been prepared.");
+            }
+            if (ms is null)
+            {
+                ms = new MemoryStream(1024);
+            }
+
+            ms.Write(data, 0, data.Length);
+        }
+
+        private void _prepareDigest()
+        {
+            if (digest == null && !(ms is null))
+            {
+                byte[] hash = ms.ToArray();
+                ms.Position = 0;
+                digest = Convert.ToBase64String(hash).Replace('+', '-').Replace('/', '_');
+                entry = "SHA-256=" + digest;
+            }
+        }
+
+        
+#else
         public Digester()
         {
             hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         }
-        
+
         public void AppendData(string s)
         {
             if (digest != null)
@@ -36,7 +86,7 @@ namespace NATS.Client.Internals
             }
             hasher.AppendData(Encoding.UTF8.GetBytes(s));
         }
-        
+
         public void AppendData(byte[] data)
         {
             if (digest != null)
@@ -45,7 +95,7 @@ namespace NATS.Client.Internals
             }
             hasher.AppendData(data);
         }
-        
+
         private void _prepareDigest()
         {
             if (digest == null)
@@ -55,6 +105,7 @@ namespace NATS.Client.Internals
                 entry = "SHA-256=" + digest;
             }
         }
+#endif
 
         public string GetDigestValue()
         {

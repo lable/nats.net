@@ -235,6 +235,15 @@ namespace NATS.Client
                 {
                     schedulerRunning = true;
 
+#if NET40
+                    // Use the default task scheduler and do not let child tasks launched
+                    // when running actions to attach to this task (Issue #273)
+                    executorTask = Task.Factory.StartNew(
+                        process,
+                        CancellationToken.None,
+                        TaskCreationOptions.LongRunning,
+                        TaskScheduler.Default);
+#else
                     // Use the default task scheduler and do not let child tasks launched
                     // when running actions to attach to this task (Issue #273)
                     executorTask = Task.Factory.StartNew(
@@ -242,6 +251,8 @@ namespace NATS.Client
                         CancellationToken.None,
                         TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
                         TaskScheduler.Default);
+#endif
+
                 }
             }
 
@@ -274,7 +285,7 @@ namespace NATS.Client
                 catch (Exception) { }
             }
 
-            #region IDisposable Support
+#region IDisposable Support
             private bool disposedValue = false; // To detect redundant calls
 
             protected virtual void Dispose(bool disposing)
@@ -294,7 +305,7 @@ namespace NATS.Client
             {
                 Dispose(true);
             }
-            #endregion
+#endregion
         }
 
         CallbackScheduler callbackScheduler = new CallbackScheduler();
@@ -379,10 +390,15 @@ namespace NATS.Client
                     }
 
                     client = new TcpClient(Socket.OSSupportsIPv6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork);
+#if NET40
+                    var task = Task.Factory.StartNew(() => client.Connect(s.Url.Host, s.Url.Port));
+#else
                     if (Socket.OSSupportsIPv6)
                         client.Client.DualMode = true;
 
                     var task = client.ConnectAsync(s.Url.Host, s.Url.Port);
+#endif
+
                     // avoid raising TaskScheduler.UnobservedTaskException if the timeout occurs first
                     task.ContinueWith(t => GC.KeepAlive(t.Exception), TaskContinuationOptions.OnlyOnFaulted);
                     if (!task.Wait(TimeSpan.FromMilliseconds(timeoutMillis)))
@@ -418,7 +434,7 @@ namespace NATS.Client
 
             internal static void close(TcpClient c)
             {
-#if NET46
+#if NET46 || NET40
                     c?.Close();
 #else
                     c?.Dispose();
@@ -443,7 +459,12 @@ namespace NATS.Client
                 try
                 {
                     SslProtocols protocol = (SslProtocols)Enum.Parse(typeof(SslProtocols), "Tls12");
+#if NETSTANDARD1_6
                     sslStream.AuthenticateAsClientAsync(hostName, options.certificates, protocol, options.CheckCertificateRevocation).Wait();
+#else
+                    sslStream.AuthenticateAsClient(hostName, options.certificates, protocol, options.CheckCertificateRevocation);
+#endif
+
                 }
                 catch (Exception ex)
                 {
@@ -556,7 +577,7 @@ namespace NATS.Client
                 }
             }
 
-            #region IDisposable Support
+#region IDisposable Support
             private bool disposedValue = false; // To detect redundant calls
 
             void Dispose(bool disposing)
@@ -581,7 +602,7 @@ namespace NATS.Client
             {
                 Dispose(true);
             }
-            #endregion
+#endregion
         }
 
         /// <summary>
@@ -613,6 +634,15 @@ namespace NATS.Client
                         Name = "SubChannelProcessor " + this.GetHashCode(),
                     };
 
+#if NET40
+                    // Use the default task scheduler and do not let child tasks launched
+                    // when delivering messages to attach to this task (Issue #273)
+                    channelTask = Task.Factory.StartNew(
+                        DeliverMessages,
+                        CancellationToken.None,
+                        TaskCreationOptions.LongRunning,
+                        TaskScheduler.Default);
+#else
                     // Use the default task scheduler and do not let child tasks launched
                     // when delivering messages to attach to this task (Issue #273)
                     channelTask = Task.Factory.StartNew(
@@ -620,6 +650,8 @@ namespace NATS.Client
                         CancellationToken.None,
                         TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
                         TaskScheduler.Default);
+#endif
+
                 }
 
                 internal Channel<Msg> Channel { get; }
@@ -1138,12 +1170,20 @@ namespace NATS.Client
             // Otherwise, the connection is referenced by an orphaned 
             // ping timer which can create a memory leak.
             startPingTimer();
-
+#if NET40
+            Task.Factory.StartNew(
+                spinUpSocketWatchers,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning ,
+                TaskScheduler.Default);
+#else
             Task.Factory.StartNew(
                 spinUpSocketWatchers,
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
                 TaskScheduler.Default);
+#endif
+
         }
 
         internal bool connect(Srv s, out Exception exToThrow)
@@ -1431,9 +1471,16 @@ namespace NATS.Client
             StreamReader sr = null;
             try
             {
+#if NET40
+                // TODO:  Make this reader (or future equivalent) unbounded.
+                // we need the underlying stream, so leave it open.
+                sr = new StreamReader(br, Encoding.UTF8, false, MaxControlLineSize);
+#else
                 // TODO:  Make this reader (or future equivalent) unbounded.
                 // we need the underlying stream, so leave it open.
                 sr = new StreamReader(br, Encoding.UTF8, false, MaxControlLineSize, true);
+#endif
+
                 result = sr.ReadLine();
 
                 // If opts.verbose is set, handle +OK.
@@ -1477,6 +1524,18 @@ namespace NATS.Client
 
         private Control readOp()
         {
+#if NET40
+            // This is only used when creating a connection, so simplify
+            // life and just create a stream reader to read the incoming
+            // info string.  If this becomes part of the fastpath, read
+            // the string directly using the buffered reader.
+            //
+            // Keep the underlying stream open.
+            using (StreamReader sr = new StreamReader(br, Encoding.ASCII, false, MaxControlLineSize))
+            {
+                return new Control(sr.ReadLine());
+            }
+#else
             // This is only used when creating a connection, so simplify
             // life and just create a stream reader to read the incoming
             // info string.  If this becomes part of the fastpath, read
@@ -1487,6 +1546,8 @@ namespace NATS.Client
             {
                 return new Control(sr.ReadLine());
             }
+#endif
+
         }
 
         private void processDisconnect()
@@ -1540,7 +1601,7 @@ namespace NATS.Client
 
             if (pending.Length > 0)
             {
-#if NET46
+#if NET46 || NET40
                 bw.Write(pending.GetBuffer(), 0, (int)pending.Length);
                 bw.Flush();
 #else
@@ -1884,7 +1945,7 @@ namespace NATS.Client
             return end;
         }
 
-        #region Fast Unsigned Integer to UTF8 Conversion
+#region Fast Unsigned Integer to UTF8 Conversion
         // Adapted from "C++ String Toolkit Library" using bit tricks
         // to avoid the string copy/reverse.
         /*
@@ -2030,7 +2091,7 @@ namespace NATS.Client
             return offset;
         }
 
-        #endregion
+#endregion
 
         // Finds the ends of each token in the argument buffer.
         private int[] argEnds = new int[5];
@@ -3149,12 +3210,22 @@ namespace NATS.Client
 
         private Task<Msg> oldRequestAsync(string subject, byte[] headers, byte[] data, int offset, int count, int timeout, CancellationToken ct)
         {
+#if NET40
+            // Simple case without a cancellation token.
+            if (ct == CancellationToken.None)
+                return TaskEx.Run(() => oldRequest(subject, headers, data, offset, count, timeout), ct);
+
+            // More complex case, supporting cancellation.
+            return TaskEx.Run(() =>
+#else
             // Simple case without a cancellation token.
             if (ct == CancellationToken.None)
                 return Task.Run(() => oldRequest(subject, headers, data, offset, count, timeout), ct);
 
             // More complex case, supporting cancellation.
             return Task.Run(() =>
+#endif
+
             {
                 // check if we are already cancelled.
                 ct.ThrowIfCancellationRequested();
@@ -3928,11 +3999,18 @@ namespace NATS.Client
                 {
                     removeSub(s);
                 }
-
+#if NET40
+                if (drain)
+                {
+                    task = TaskEx.Run(() => checkDrained(s, timeout));
+                }
+#else
                 if (drain)
                 {
                     task = Task.Run(() => checkDrained(s, timeout));
                 }
+#endif
+
 
                 // We will send all subscriptions when reconnecting
                 // so that we can suppress here.
@@ -4538,8 +4616,12 @@ namespace NATS.Client
         {
             if (timeout <= 0)
                 throw new ArgumentOutOfRangeException(nameof(timeout), "Timeout must be greater than zero.");
-
+#if NET40
+            return TaskEx.Run(() => drain(timeout));
+#else
             return Task.Run(() => drain(timeout));
+#endif
+
         }
 
         // assume the lock is held.
@@ -4707,7 +4789,7 @@ namespace NATS.Client
             return sb.ToString();
         }
 
-        #region IDisposable Support
+#region IDisposable Support
 
         // To detect redundant calls
         private bool disposedValue = false; 
@@ -4754,9 +4836,9 @@ namespace NATS.Client
             GC.SuppressFinalize(this);
         }
 
-        #endregion
+#endregion
 
-        #region JetStream
+#region JetStream
 
         public IJetStream CreateJetStreamContext(JetStreamOptions options = null)
         {
@@ -4768,9 +4850,9 @@ namespace NATS.Client
             return new JetStreamManagement(this, options);
         }
 
-        #endregion
+#endregion
 
-        #region KeyValue
+#region KeyValue
 
         public IKeyValue CreateKeyValueContext(string bucketName, KeyValueOptions options = null)
         {
@@ -4782,9 +4864,9 @@ namespace NATS.Client
             return new KeyValueManagement(this, options);
         }
 
-        #endregion
+#endregion
 
-        #region ObjectStore
+#region ObjectStore
 
         public IObjectStore CreateObjectStoreContext(string bucketName, ObjectStoreOptions options = null)
         {
@@ -4796,6 +4878,6 @@ namespace NATS.Client
             return new ObjectStoreManagement(this, options);
         }
 
-        #endregion
+#endregion
     } // class Conn
 }

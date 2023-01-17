@@ -82,7 +82,12 @@ namespace NATS.Client.JetStream
             {
                 temp[key] = new AccountTier(tnode[key]);
             }
+#if NET40
+            Tiers = new Dictionary<string, AccountTier>(temp);
+#else
             Tiers = new ReadOnlyDictionary<string, AccountTier>(temp);
+#endif
+
         }
     }
 }

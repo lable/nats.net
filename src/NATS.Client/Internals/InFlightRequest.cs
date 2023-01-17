@@ -31,7 +31,12 @@ namespace NATS.Client.Internals
         private readonly CancellationTokenRegistration _tokenRegistration;
         private readonly CancellationToken _clientProvidedToken;
 
+#if NET40
+        internal readonly TaskCompletionSource<Msg> Waiter = new TaskCompletionSource<Msg>();
+#else
         internal readonly TaskCompletionSource<Msg> Waiter = new TaskCompletionSource<Msg>(TaskCreationOptions.RunContinuationsAsynchronously);
+#endif
+
 
         public readonly string Id;
         public readonly CancellationToken Token;
@@ -68,8 +73,24 @@ namespace NATS.Client.Internals
 
             _tokenRegistration = Token.Register(CancellationCallback, this);
 
+#if NET40
+            if (timeout > 0)
+            {
+                using (var timer = new System.Timers.Timer
+                {
+                     AutoReset = false,
+                     Interval = timeout,
+                     Enabled= true
+                })
+                {
+                    _tokenSource.Cancel();
+                }
+            }
+#else
             if (timeout > 0)
                 _tokenSource.CancelAfter(timeout);
+#endif
+
         }
 
         private static void CancellationCallback(object req)

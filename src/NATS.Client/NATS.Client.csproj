@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks Condition="$(OS) == 'Windows_NT'">netstandard1.6;netstandard2.0;net46</TargetFrameworks>
+    <TargetFrameworks Condition="$(OS) == 'Windows_NT'">netstandard1.6;netstandard2.0;net46;net40</TargetFrameworks>
     <TargetFrameworks Condition="$(OS) != 'Windows_NT'">netstandard1.6;netstandard2.0</TargetFrameworks>
     <Title>NATS .NET Client</Title>
     <Description>NATS acts as a central nervous system for distributed systems at scale for IoT, edge computing, and cloud native and on-premise applications.  This is the .NET client API.</Description>
@@ -36,6 +36,9 @@
     <PackageReference Include="System.Runtime" Version="4.3.1" />
     <PackageReference Include="System.Threading.Thread" Version="4.3.0" />
   </ItemGroup>
+	<ItemGroup Condition="'$(TargetFramework)' == 'net40'">
+		<PackageReference Include="Microsoft.Bcl.Async" Version="1.0.168" />
+	</ItemGroup>
 
   <ItemGroup Condition="$(TargetFramework) == 'netstandard1.6' Or $(TargetFramework) == 'net46'">
     <PackageReference Include="System.Collections.Specialized" Version="4.3.0" />

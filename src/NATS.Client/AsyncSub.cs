@@ -113,6 +113,15 @@ namespace NATS.Client
         {
             if (ownsChannel && msgFeeder == null)
             {
+#if NET40
+                // Use the default task scheduler and do not let child tasks launched
+                // when delivering messages to attach to this task (Issue #273)‘
+                msgFeeder = Task.Factory.StartNew(
+                    doAsyncProcessing,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+#else
                 // Use the default task scheduler and do not let child tasks launched
                 // when delivering messages to attach to this task (Issue #273)
                 msgFeeder = Task.Factory.StartNew(
@@ -120,6 +129,8 @@ namespace NATS.Client
                     CancellationToken.None,
                     TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
                     TaskScheduler.Default);
+#endif
+
             }
             started = true;
         }

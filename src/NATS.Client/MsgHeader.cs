@@ -264,8 +264,14 @@ namespace NATS.Client
             if (nvc.Count != other.nvc.Count) return false;
             foreach (string key in nvc.AllKeys)
             {
+#if NET40
+                string[] thisValues = nvc.GetValues(key) ?? EmptyArray<string>.Value;
+                string[] thatValues = other.nvc.GetValues(key) ?? EmptyArray<string>.Value;
+#else
                 string[] thisValues = nvc.GetValues(key) ?? Array.Empty<string>();
                 string[] thatValues = other.nvc.GetValues(key) ?? Array.Empty<string>();
+#endif
+
                 if (!thisValues.SequenceEqual(thatValues))
                 {
                     return false;
