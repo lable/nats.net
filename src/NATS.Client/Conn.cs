@@ -17,6 +17,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -389,15 +390,28 @@ namespace NATS.Client
                         sslStream = null;
                     }
 
-                    client = new TcpClient(Socket.OSSupportsIPv6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork);
+
 #if NET40
-                    var task = Task.Factory.StartNew(() => client.Connect(s.Url.Host, s.Url.Port));
+                    //var task = Task.Factory.StartNew(() => client.Connect(s.Url.Host, s.Url.Port));
+
+                    client = new TcpClient(AddressFamily.InterNetwork);
+                    try
+                    {
+                        client.Connect(s.Url.Host, s.Url.Port);
+                    }
+                    catch (SocketException)
+                    {
+                        close(client);
+                        client = null;
+                        throw;
+                    }
+
 #else
+                    client = new TcpClient(Socket.OSSupportsIPv6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork);
                     if (Socket.OSSupportsIPv6)
                         client.Client.DualMode = true;
 
                     var task = client.ConnectAsync(s.Url.Host, s.Url.Port);
-#endif
 
                     // avoid raising TaskScheduler.UnobservedTaskException if the timeout occurs first
                     task.ContinueWith(t => GC.KeepAlive(t.Exception), TaskContinuationOptions.OnlyOnFaulted);
@@ -407,6 +421,9 @@ namespace NATS.Client
                         client = null;
                         throw new NATSConnectionException("timeout");
                     }
+#endif
+
+
 
                     client.NoDelay = false;
 
@@ -462,7 +479,21 @@ namespace NATS.Client
 #if NETSTANDARD1_6
                     sslStream.AuthenticateAsClientAsync(hostName, options.certificates, protocol, options.CheckCertificateRevocation).Wait();
 #else
+//#if NET40
+//                    //int intSslProtocols = 0;
+//                    //int minSslProtocol = (int)SslProtocols.Tls;
+
+//                    //foreach (var sslProtocol in Enum.GetValues(typeof(SslProtocols)).Cast<int>())
+//                    //{
+//                    //    if (sslProtocol >= minSslProtocol && sslProtocol != (int)SslProtocols.Default)
+//                    //        intSslProtocols |= sslProtocol;
+//                    //}
+
+//                    //protocol = (SslProtocols)intSslProtocols;
+//                    sslStream.AuthenticateAsClient(hostName, options.certificates, SslProtocols.Tls, options.CheckCertificateRevocation);
+//#else
                     sslStream.AuthenticateAsClient(hostName, options.certificates, protocol, options.CheckCertificateRevocation);
+//#endif
 #endif
 
                 }
@@ -1495,8 +1526,13 @@ namespace NATS.Client
             }
             finally
             {
+#if NET40
+                //TODO:NET40 jy 20230128
+                sr = null;
+#else
                 if (sr != null)
                     sr.Dispose();
+#endif
             }
 
             if (IC.pongProtoNoCRLF.Equals(result))
@@ -1531,10 +1567,11 @@ namespace NATS.Client
             // the string directly using the buffered reader.
             //
             // Keep the underlying stream open.
-            using (StreamReader sr = new StreamReader(br, Encoding.ASCII, false, MaxControlLineSize))
-            {
-                return new Control(sr.ReadLine());
-            }
+            //不能使用using块，会将基础流也关闭 20230128
+            StreamReader sr = new StreamReader(br, Encoding.ASCII, false, MaxControlLineSize);
+            var c = new Control(sr.ReadLine());
+            sr = null;
+            return c;
 #else
             // This is only used when creating a connection, so simplify
             // life and just create a stream reader to read the incoming
